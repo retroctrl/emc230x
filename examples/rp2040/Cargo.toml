@@ -9,10 +9,10 @@ cortex-m = { version = "0.7.6" }
 cortex-m-rt = { version = "0.7.3" }
 defmt = "0.3.8"
 defmt-rtt = "0.4"
-embassy-embedded-hal = { git = "https://github.com/embassy-rs/embassy.git", features = ["defmt"] }
-embassy-executor = { git = "https://github.com/embassy-rs/embassy.git", default-features = false, features = ["task-arena-size-32768", "arch-cortex-m", "executor-thread"] }
-embassy-rp = { git = "https://github.com/embassy-rs/embassy.git", features = ["unstable-pac", "time-driver", "critical-section-impl", "rp2040"] }
-embassy-time = { git = "https://github.com/embassy-rs/embassy.git", features = ["defmt-timestamp-uptime"]}
-fans = "0.2"
+embassy-embedded-hal = { version = "0.5", features = ["defmt"] }
+embassy-executor = { version = "0.9", default-features = false, features = ["arch-cortex-m", "executor-thread"] }
+embassy-rp = { version = "0.9", features = ["unstable-pac", "time-driver", "critical-section-impl", "rp2040"] }
+embassy-time = { version = "0.5", features = ["defmt-timestamp-uptime"]}
+fans = "0.3"
 panic-probe = { version = "0.3", features = ["print-defmt"] }
 emc230x = { path = "../.." }
