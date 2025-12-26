@@ -51,7 +51,7 @@ bitfield::bitfield! {
 }
 
 impl PwmOutputConfig {
-    pub fn open_drain(&mut self, sel: u8) {
+    pub fn open_drain(&mut self, sel: u16) {
         match sel {
             1 => self.set_pmot1(false),
             2 => self.set_pmot2(false),
@@ -62,7 +62,7 @@ impl PwmOutputConfig {
         }
     }
 
-    pub fn push_pull(&mut self, sel: u8) {
+    pub fn push_pull(&mut self, sel: u16) {
         match sel {
             1 => self.set_pmot1(true),
             2 => self.set_pmot2(true),

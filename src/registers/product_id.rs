@@ -20,7 +20,7 @@ impl ProductId {
     pub const ADDRESS: u8 = 0xFD;
 
     /// Number of fans the device supports based on the Product ID.
-    pub fn num_fans(&self) -> u8 {
+    pub fn num_fans(&self) -> u16 {
         match self {
             ProductId::Emc2301 => 1,
             ProductId::Emc2302 => 2,
