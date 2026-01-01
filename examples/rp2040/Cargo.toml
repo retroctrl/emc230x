@@ -13,6 +13,6 @@ embassy-embedded-hal = { version = "0.5", features = ["defmt"] }
 embassy-executor = { version = "0.9", default-features = false, features = ["arch-cortex-m", "executor-thread"] }
 embassy-rp = { version = "0.9", features = ["unstable-pac", "time-driver", "critical-section-impl", "rp2040"] }
 embassy-time = { version = "0.5", features = ["defmt-timestamp-uptime"]}
-fans = "0.3"
+fans = { version = "0.4" }
 panic-probe = { version = "0.3", features = ["print-defmt"] }
 emc230x = { path = "../.." }
