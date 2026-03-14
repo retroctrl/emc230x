@@ -280,7 +280,7 @@ impl<I2C: I2c> Emc230x<I2C> {
     /// Get the number of poles for the selected fan (used in RPM calculations)
     pub fn fan_poles(&self, sel: FanSelect) -> Result<u8, Error> {
         self.valid_fan(sel)?;
-        Ok(self.poles[sel.0 as usize])
+        Ok(self.poles[sel.0 as usize - 1])
     }
 
     /// Set the number of poles for the selected fan (used in RPM calculations)
@@ -290,7 +290,7 @@ impl<I2C: I2c> Emc230x<I2C> {
     /// happen as well.
     pub fn set_fan_poles(&mut self, sel: FanSelect, poles: u8) -> Result<(), Error> {
         self.valid_fan(sel)?;
-        self.poles[sel.0 as usize] = poles;
+        self.poles[sel.0 as usize - 1] = poles;
         Ok(())
     }
 
@@ -636,9 +636,8 @@ mod tests {
             ));
 
             self.transactions.push(I2cTransaction::write_read(
-                EMC2301_I2C_ADDR,
-                vec![FanConfiguration1::fan_address(FanSelect(1))
-                    .expect("Could not set fan address")],
+                self.address,
+                vec![FanConfiguration1::fan_address(select).expect("Could not set fan address")],
                 vec![default_cfg.into()],
             ));
         }
@@ -845,6 +844,62 @@ mod tests {
                 result
             );
         }
+
+        let mut i2c = dev.release();
+        i2c.done();
+    }
+
+    #[tokio::test]
+    async fn emc2305_duty_cycle_fan5() {
+        let mut expectations =
+            Emc230xExpectationBuilder::new(EMC230X_I2C_ADDR_0, ProductId::Emc2305);
+        expectations.duty_cycle(FanSelect(5), 75);
+        let expectations = expectations.build();
+
+        let i2c = I2cMock::new(&expectations);
+        let mut dev = Emc230x::new(i2c, EMC230X_I2C_ADDR_0)
+            .await
+            .expect("Could not create device");
+
+        let result = dev
+            .duty_cycle(FanSelect(5))
+            .await
+            .expect("Could not get duty cycle for fan 5");
+        assert_eq!(75, result);
+
+        let mut i2c = dev.release();
+        i2c.done();
+    }
+
+    #[tokio::test]
+    async fn emc2305_rpm_fan5() {
+        let expected_rpm: u16 = 1000;
+        let mut expectations =
+            Emc230xExpectationBuilder::new(EMC230X_I2C_ADDR_0, ProductId::Emc2305);
+        expectations.rpm(FanSelect(5), expected_rpm);
+        let expectations = expectations.build();
+
+        let i2c = I2cMock::new(&expectations);
+        let mut dev = Emc230x::new(i2c, EMC230X_I2C_ADDR_0)
+            .await
+            .expect("Could not create device");
+
+        let result = dev
+            .rpm(FanSelect(5))
+            .await
+            .expect("Could not get RPM for fan 5");
+
+        let range = std::ops::Range {
+            start: expected_rpm as f64 * 0.99,
+            end: expected_rpm as f64 * 1.01,
+        };
+        assert!(
+            range.contains(&(result as f64)),
+            "RPM was out of expected range; Expected: {} in Range: {:?} Got: {}",
+            expected_rpm,
+            range,
+            result
+        );
 
         let mut i2c = dev.release();
         i2c.done();
