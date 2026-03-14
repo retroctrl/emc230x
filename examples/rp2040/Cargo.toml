@@ -4,6 +4,11 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[features]
+# Use I2C1 with its default pins (SDA=PIN_2, SCL=PIN_3) instead of
+# I2C0 with the default pins (SDA=PIN_0, SCL=PIN_1).
+i2c1 = []
+
 [dependencies]
 cortex-m = { version = "0.7.6" }
 cortex-m-rt = { version = "0.7.3" }
@@ -13,6 +18,9 @@ embassy-embedded-hal = { version = "0.5", features = ["defmt"] }
 embassy-executor = { version = "0.9", default-features = false, features = ["arch-cortex-m", "executor-thread"] }
 embassy-rp = { version = "0.9", features = ["unstable-pac", "time-driver", "critical-section-impl", "rp2040"] }
 embassy-time = { version = "0.5", features = ["defmt-timestamp-uptime"]}
+embassy-usb-logger = "0.5"
 fans = { version = "0.4" }
+log = { version = "0.4", default-features = false }
 panic-probe = { version = "0.3", features = ["print-defmt"] }
 emc230x = { path = "../.." }
+embassy-sync = "0.7.2"
