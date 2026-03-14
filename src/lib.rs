@@ -33,6 +33,23 @@ mod registers;
 /// Default I2C address for the EMC2301 device
 pub const EMC2301_I2C_ADDR: u8 = 0b0010_1111;
 
+/// I2C addresses for the EMC230x family, selected by the ADDR resistor configuration.
+pub const EMC230X_I2C_ADDR_0: u8 = 0x2C;
+pub const EMC230X_I2C_ADDR_1: u8 = 0x2D;
+pub const EMC230X_I2C_ADDR_2: u8 = 0x2E;
+pub const EMC230X_I2C_ADDR_3: u8 = 0x2F;
+pub const EMC230X_I2C_ADDR_4: u8 = 0x4C;
+pub const EMC230X_I2C_ADDR_5: u8 = 0x4D;
+
+const EMC230X_ADDRESSES: [u8; 6] = [
+    EMC230X_I2C_ADDR_0,
+    EMC230X_I2C_ADDR_1,
+    EMC230X_I2C_ADDR_2,
+    EMC230X_I2C_ADDR_3,
+    EMC230X_I2C_ADDR_4,
+    EMC230X_I2C_ADDR_5,
+];
+
 /// Simplified RPM factor for calculating RPM from raw values
 ///
 /// See Equation 4-3, page 17 of the datasheet. ((SIMPLIFIED_RPM_FACTOR * m) / COUNT)
@@ -113,6 +130,38 @@ pub(crate) fn hacky_round_u16(value: f64) -> u16 {
     }
 }
 
+/// The set of I2C addresses at which EMC230x devices were discovered during a bus probe.
+///
+/// Returned by [`Emc230x::probe`]. Iterating yields only addresses where a device was found.
+#[derive(Copy, Clone, Debug, Default)]
+pub struct ProbeResult([Option<u8>; 6]);
+
+impl ProbeResult {
+    /// Returns an iterator over found device addresses.
+    pub fn iter(&self) -> impl Iterator<Item = u8> + '_ {
+        self.0.iter().filter_map(|x| *x)
+    }
+
+    /// Returns `true` if no devices were found.
+    pub fn is_empty(&self) -> bool {
+        self.0.iter().all(|x| x.is_none())
+    }
+
+    /// Returns the number of devices found.
+    pub fn len(&self) -> usize {
+        self.0.iter().filter(|x| x.is_some()).count()
+    }
+}
+
+impl IntoIterator for ProbeResult {
+    type Item = u8;
+    type IntoIter = core::iter::Flatten<core::array::IntoIter<Option<u8>, 6>>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter().flatten()
+    }
+}
+
 pub struct Emc230x<I2C> {
     /// I2C bus
     i2c: I2C,
@@ -155,6 +204,32 @@ impl<I2C: I2c> Emc230x<I2C> {
         } else {
             Err(Error::InvalidManufacturerId)
         }
+    }
+
+    /// Probe the I2C bus for any EMC230x devices.
+    ///
+    /// Checks all six possible EMC230x I2C addresses (0x2C–0x2F, 0x4C–0x4D) and returns a
+    /// [`ProbeResult`] containing each address where an EMC230x was identified.
+    /// Issues up to 12 I2C transactions (2 per address).
+    ///
+    /// The I2C bus is borrowed so the caller can pass it to [`Emc230x::new`]
+    /// using one of the returned addresses.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let found = Emc230x::probe(&mut i2c).await;
+    /// if let Some(addr) = found.iter().next() {
+    ///     let dev = Emc230x::new(i2c, addr).await?;
+    /// }
+    /// ```
+    pub async fn probe(i2c: &mut I2C) -> ProbeResult {
+        let mut result = ProbeResult::default();
+        for (slot, &address) in EMC230X_ADDRESSES.iter().enumerate() {
+            if Self::is_emc230x(i2c, address).await.is_ok() {
+                result.0[slot] = Some(address);
+            }
+        }
+        result
     }
 
     /// Initialize a new EMC230x device at the specified address
@@ -571,6 +646,128 @@ mod tests {
         fn build(self) -> Vec<I2cTransaction> {
             self.transactions
         }
+    }
+
+    #[tokio::test]
+    async fn probe_no_devices() {
+        use embedded_hal::i2c::{ErrorKind, NoAcknowledgeSource};
+
+        let expectations: Vec<I2cTransaction> = EMC230X_ADDRESSES
+            .iter()
+            .map(|&addr| {
+                I2cTransaction::write_read(addr, vec![ManufacturerId::ADDRESS], vec![0])
+                    .with_error(ErrorKind::NoAcknowledge(NoAcknowledgeSource::Address))
+            })
+            .collect();
+
+        let mut i2c = I2cMock::new(&expectations);
+        let result = Emc230x::probe(&mut i2c).await;
+        assert!(result.is_empty());
+        i2c.done();
+    }
+
+    #[tokio::test]
+    async fn probe_one_device() {
+        use embedded_hal::i2c::{ErrorKind, NoAcknowledgeSource};
+
+        let mut expectations: Vec<I2cTransaction> = Vec::new();
+        for &addr in EMC230X_ADDRESSES.iter() {
+            if addr == EMC230X_I2C_ADDR_3 {
+                expectations.push(I2cTransaction::write_read(
+                    addr,
+                    vec![ManufacturerId::ADDRESS],
+                    vec![0x5D],
+                ));
+                expectations.push(I2cTransaction::write_read(
+                    addr,
+                    vec![ProductId::ADDRESS],
+                    vec![ProductId::Emc2301.into()],
+                ));
+            } else {
+                expectations.push(
+                    I2cTransaction::write_read(addr, vec![ManufacturerId::ADDRESS], vec![0])
+                        .with_error(ErrorKind::NoAcknowledge(NoAcknowledgeSource::Address)),
+                );
+            }
+        }
+
+        let mut i2c = I2cMock::new(&expectations);
+        let result = Emc230x::probe(&mut i2c).await;
+        assert_eq!(result.len(), 1);
+        let addrs: Vec<u8> = result.iter().collect();
+        assert_eq!(addrs, vec![EMC230X_I2C_ADDR_3]);
+        i2c.done();
+    }
+
+    #[tokio::test]
+    async fn probe_wrong_manufacturer_id() {
+        use embedded_hal::i2c::{ErrorKind, NoAcknowledgeSource};
+
+        let mut expectations: Vec<I2cTransaction> = Vec::new();
+        for &addr in EMC230X_ADDRESSES.iter() {
+            if addr == EMC230X_I2C_ADDR_0 {
+                // Responds but returns wrong manufacturer ID
+                expectations.push(I2cTransaction::write_read(
+                    addr,
+                    vec![ManufacturerId::ADDRESS],
+                    vec![0x00],
+                ));
+            } else {
+                expectations.push(
+                    I2cTransaction::write_read(addr, vec![ManufacturerId::ADDRESS], vec![0])
+                        .with_error(ErrorKind::NoAcknowledge(NoAcknowledgeSource::Address)),
+                );
+            }
+        }
+
+        let mut i2c = I2cMock::new(&expectations);
+        let result = Emc230x::probe(&mut i2c).await;
+        assert!(result.is_empty());
+        i2c.done();
+    }
+
+    #[tokio::test]
+    async fn probe_multiple_devices() {
+        use embedded_hal::i2c::{ErrorKind, NoAcknowledgeSource};
+
+        let mut expectations: Vec<I2cTransaction> = Vec::new();
+        for &addr in EMC230X_ADDRESSES.iter() {
+            if addr == EMC230X_I2C_ADDR_0 {
+                expectations.push(I2cTransaction::write_read(
+                    addr,
+                    vec![ManufacturerId::ADDRESS],
+                    vec![0x5D],
+                ));
+                expectations.push(I2cTransaction::write_read(
+                    addr,
+                    vec![ProductId::ADDRESS],
+                    vec![ProductId::Emc2305.into()],
+                ));
+            } else if addr == EMC230X_I2C_ADDR_5 {
+                expectations.push(I2cTransaction::write_read(
+                    addr,
+                    vec![ManufacturerId::ADDRESS],
+                    vec![0x5D],
+                ));
+                expectations.push(I2cTransaction::write_read(
+                    addr,
+                    vec![ProductId::ADDRESS],
+                    vec![ProductId::Emc2303.into()],
+                ));
+            } else {
+                expectations.push(
+                    I2cTransaction::write_read(addr, vec![ManufacturerId::ADDRESS], vec![0])
+                        .with_error(ErrorKind::NoAcknowledge(NoAcknowledgeSource::Address)),
+                );
+            }
+        }
+
+        let mut i2c = I2cMock::new(&expectations);
+        let result = Emc230x::probe(&mut i2c).await;
+        assert_eq!(result.len(), 2);
+        let addrs: Vec<u8> = result.iter().collect();
+        assert_eq!(addrs, vec![EMC230X_I2C_ADDR_0, EMC230X_I2C_ADDR_5]);
+        i2c.done();
     }
 
     #[tokio::test]
