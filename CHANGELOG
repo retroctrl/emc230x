@@ -9,8 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Added
 
+- Add `probe` function to scan all available I2C addresses
 - Example: scan all device addresses
 - Add fan stall detection
+
+## Fixed
+
+- Fix off by one errors when checking poles
 
 ## [v0.6.0] - 2026-01-01
 
