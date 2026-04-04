@@ -87,6 +87,15 @@ async fn usb_logger_task(driver: Driver<'static, USB>) {
 async fn print_all_fans(devices: &mut [Option<SharedDevice<'_>>]) {
     for (i, dev) in devices.iter_mut().flatten().enumerate() {
         for fan in 1..=dev.count() {
+            let detected = unwrap_or_halt(
+                dev.fan_detected(FanSelect(fan)).await,
+                "Failed to read fan detected",
+            )
+            .await;
+            if !detected {
+                info!("Device {}: Fan {}: not detected", i, fan);
+                continue;
+            }
             let duty =
                 unwrap_or_halt(dev.duty_cycle(FanSelect(fan)).await, "Failed to read duty cycle")
                     .await;
@@ -117,7 +126,7 @@ async fn main(spawner: Spawner) {
     // After a UF2 boot the USB CDC device needs time to enumerate on the host
     // before log messages can be delivered. Without this delay all early log
     // messages are dropped on the USB transport (RTT is unaffected).
-    // Timer::after_millis(1500).await;
+    Timer::after_millis(1500).await;
 
     info!("Starting EMC230x Fan Controller Example");
 

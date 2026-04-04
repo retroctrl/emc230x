@@ -398,6 +398,22 @@ impl<I2C: I2c> Emc230x<I2C> {
         Ok(())
     }
 
+    /// Returns `true` if a spinning fan is detected on the selected channel.
+    ///
+    /// Reads the [`FanStallStatus`] register and checks the per-fan stall bit. A clear bit
+    /// means the tachometer is receiving pulses - indicating a connected, spinning fan. A set
+    /// bit means the tach count exceeded the [`ValidTachCount`] threshold, which occurs when
+    /// no fan is connected **or** when a connected fan is not spinning.
+    ///
+    /// This is the closest the hardware can indicate fan presence; it cannot distinguish
+    /// between an absent fan and a stalled one.
+    pub async fn fan_detected(&mut self, sel: FanSelect) -> Result<bool, Error> {
+        self.valid_fan(sel)?;
+        let status = self.stall_status().await?;
+        let stalled = (u8::from(status) >> (sel.0 as u8 - 1)) & 1 != 0;
+        Ok(!stalled)
+    }
+
     /// Calculate either the RPM or raw value of the RPM based on the input value.
     async fn calc_raw_rpm(&mut self, sel: FanSelect, value: u16) -> Result<u16, Error> {
         let cfg = self.fan_configuration1(sel).await?;
@@ -900,6 +916,85 @@ mod tests {
             range,
             result
         );
+
+        let mut i2c = dev.release();
+        i2c.done();
+    }
+
+    #[tokio::test]
+    async fn fan_detected_spinning() {
+        let mut expectations = Emc230xExpectationBuilder::new(EMC2301_I2C_ADDR, ProductId::Emc2301);
+        // stall status = 0x00 -> fan 1 not stalled
+        expectations.transactions.push(I2cTransaction::write_read(
+            EMC2301_I2C_ADDR,
+            vec![FanStallStatus::ADDRESS],
+            vec![0x00],
+        ));
+        let expectations = expectations.build();
+
+        let i2c = I2cMock::new(&expectations);
+        let mut dev = Emc230x::new(i2c, EMC2301_I2C_ADDR)
+            .await
+            .expect("Could not create device");
+
+        let result = dev
+            .fan_detected(FanSelect(1))
+            .await
+            .expect("fan_detected failed");
+        assert!(result);
+
+        let mut i2c = dev.release();
+        i2c.done();
+    }
+
+    #[tokio::test]
+    async fn fan_detected_stalled() {
+        let mut expectations = Emc230xExpectationBuilder::new(EMC2301_I2C_ADDR, ProductId::Emc2301);
+        // stall status = 0x01 -> bit 0 set -> fan 1 stalled
+        expectations.transactions.push(I2cTransaction::write_read(
+            EMC2301_I2C_ADDR,
+            vec![FanStallStatus::ADDRESS],
+            vec![0x01],
+        ));
+        let expectations = expectations.build();
+
+        let i2c = I2cMock::new(&expectations);
+        let mut dev = Emc230x::new(i2c, EMC2301_I2C_ADDR)
+            .await
+            .expect("Could not create device");
+
+        let result = dev
+            .fan_detected(FanSelect(1))
+            .await
+            .expect("fan_detected failed");
+        assert!(!result);
+
+        let mut i2c = dev.release();
+        i2c.done();
+    }
+
+    #[tokio::test]
+    async fn fan_detected_emc2305_fan5_stalled() {
+        let mut expectations =
+            Emc230xExpectationBuilder::new(EMC230X_I2C_ADDR_0, ProductId::Emc2305);
+        // stall status = 0x10 -> bit 4 set -> fan 5 stalled
+        expectations.transactions.push(I2cTransaction::write_read(
+            EMC230X_I2C_ADDR_0,
+            vec![FanStallStatus::ADDRESS],
+            vec![0x10],
+        ));
+        let expectations = expectations.build();
+
+        let i2c = I2cMock::new(&expectations);
+        let mut dev = Emc230x::new(i2c, EMC230X_I2C_ADDR_0)
+            .await
+            .expect("Could not create device");
+
+        let result = dev
+            .fan_detected(FanSelect(5))
+            .await
+            .expect("fan_detected failed");
+        assert!(!result);
 
         let mut i2c = dev.release();
         i2c.done();
