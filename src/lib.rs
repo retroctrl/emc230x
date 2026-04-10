@@ -16,10 +16,7 @@ extern crate std;
 #[cfg(any(test, feature = "alloc"))]
 extern crate alloc;
 
-use core::{
-    fmt::{self, Debug, Formatter},
-    future::Future,
-};
+use core::fmt::{self, Debug, Formatter};
 use embedded_hal_async as hal;
 pub use fans::{FanControl, FanDutyCycle, FanRpm, FanSelect};
 use hal::i2c::I2c;
@@ -299,8 +296,25 @@ impl<I2C: I2c> Emc230x<I2C> {
         Self::TACH_FREQUENCY_HZ
     }
 
-    fn _mode(&mut self, _sel: FanSelect) -> impl Future<Output = Result<FanControl, Error>> {
-        async { todo!() }
+    /// Get the mode of the fan
+    pub async fn mode(&mut self, sel: FanSelect) -> Result<FanControl, Error> {
+        self.valid_fan(sel)?;
+        let config = self.fan_configuration1(sel).await?;
+
+        if config.enagx() {
+            // RPM mode: read the tach target registers and convert to RPM
+            let raw_low = self.tach_target_low_byte(sel).await?;
+            let raw_high = self.tach_target_high_byte(sel).await?;
+
+            let raw = u16::from_le_bytes([raw_low.into(), raw_high.into()]) >> 3;
+            let rpm = self.calc_raw_rpm(sel, raw).await?;
+
+            Ok(FanControl::Rpm(rpm))
+        } else {
+            // Duty cycle mode: read the fan drive setting
+            let drive = self.fan_setting(sel).await?;
+            Ok(FanControl::DutyCycle(drive.duty_cycle()))
+        }
     }
 
     /// Set the mode of the fan
@@ -1017,6 +1031,103 @@ mod tests {
 
         let result = dev.valid_fan(FanSelect(6));
         assert!(result.is_err());
+
+        let mut i2c = dev.release();
+        i2c.done();
+    }
+
+    #[tokio::test]
+    async fn mode_duty_cycle() {
+        let duty = 75_u8;
+        let mut expectations = Emc230xExpectationBuilder::new(EMC2301_I2C_ADDR, ProductId::Emc2301);
+
+        let mut cfg = FanConfiguration1::default();
+        cfg.set_rngx(fan_configuration1::Range::Rpm500);
+        expectations.transactions.push(I2cTransaction::write_read(
+            EMC2301_I2C_ADDR,
+            vec![FanConfiguration1::fan_address(FanSelect(1)).expect("fan address")],
+            vec![cfg.into()],
+        ));
+
+        let raw = FanDriveSetting::from_duty_cycle(duty);
+        expectations.transactions.push(I2cTransaction::write_read(
+            EMC2301_I2C_ADDR,
+            vec![FanDriveSetting::fan_address(FanSelect(1)).expect("fan address")],
+            vec![raw.into()],
+        ));
+
+        let expectations = expectations.build();
+        let i2c = I2cMock::new(&expectations);
+        let mut dev = Emc230x::new(i2c, EMC2301_I2C_ADDR)
+            .await
+            .expect("Could not create device");
+
+        let result = dev.mode(FanSelect(1)).await.expect("Could not get mode");
+        assert_eq!(result, FanControl::DutyCycle(duty));
+
+        let mut i2c = dev.release();
+        i2c.done();
+    }
+
+    #[tokio::test]
+    async fn mode_rpm() {
+        let target_rpm: u16 = 1000;
+        let mut expectations = Emc230xExpectationBuilder::new(EMC2301_I2C_ADDR, ProductId::Emc2301);
+
+        let mut cfg = FanConfiguration1::default();
+        cfg.set_rngx(fan_configuration1::Range::Rpm500);
+        cfg.set_enagx(true);
+        expectations.transactions.push(I2cTransaction::write_read(
+            EMC2301_I2C_ADDR,
+            vec![FanConfiguration1::fan_address(FanSelect(1)).expect("fan address")],
+            vec![cfg.into()],
+        ));
+
+        let raw_count = (_SIMPLIFIED_RPM_FACTOR * cfg.rngx().tach_count_multiplier() as f64
+            / target_rpm as f64) as u16;
+        let count = TachReading::from(raw_count);
+
+        expectations.transactions.push(I2cTransaction::write_read(
+            EMC2301_I2C_ADDR,
+            vec![TachTargetLow::fan_address(FanSelect(1)).expect("fan address")],
+            vec![count.raw_low()],
+        ));
+        expectations.transactions.push(I2cTransaction::write_read(
+            EMC2301_I2C_ADDR,
+            vec![TachTargetHigh::fan_address(FanSelect(1)).expect("fan address")],
+            vec![count.raw_high()],
+        ));
+
+        expectations.transactions.push(I2cTransaction::write_read(
+            EMC2301_I2C_ADDR,
+            vec![FanConfiguration1::fan_address(FanSelect(1)).expect("fan address")],
+            vec![cfg.into()],
+        ));
+
+        let expectations = expectations.build();
+        let i2c = I2cMock::new(&expectations);
+        let mut dev = Emc230x::new(i2c, EMC2301_I2C_ADDR)
+            .await
+            .expect("Could not create device");
+
+        let result = dev.mode(FanSelect(1)).await.expect("Could not get mode");
+
+        match result {
+            FanControl::Rpm(rpm) => {
+                let range = std::ops::Range {
+                    start: target_rpm as f64 * 0.99,
+                    end: target_rpm as f64 * 1.01,
+                };
+                assert!(
+                    range.contains(&(rpm as f64)),
+                    "RPM was out of expected range; Expected: {} in Range: {:?} Got: {}",
+                    target_rpm,
+                    range,
+                    rpm
+                );
+            }
+            other => panic!("Expected FanControl::Rpm, got {:?}", other),
+        }
 
         let mut i2c = dev.release();
         i2c.done();
