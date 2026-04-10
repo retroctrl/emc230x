@@ -157,7 +157,7 @@ async fn main(spawner: Spawner) {
     for (slot, addr) in found.iter().enumerate() {
         match Emc230x::new(I2cDevice::new(&i2c_bus), addr).await {
             Ok(dev) => {
-                info!("Initialized EMC230x at address {}", addr);
+                info!("Initialized EMC230x at address 0x{:02x}", addr);
                 devices[slot] = Some(dev);
             }
             Err(_) => error!("Failed to initialize EMC230x at address {}", addr),
