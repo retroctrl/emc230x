@@ -117,31 +117,40 @@ pub(crate) use round_to;
 ///
 /// Returned by [`Emc230x::probe`]. Iterating yields only addresses where a device was found.
 #[derive(Copy, Clone, Debug, Default)]
-pub struct ProbeResult([Option<u8>; 6]);
+pub struct ProbeResult([bool; 6]);
 
 impl ProbeResult {
     /// Returns an iterator over found device addresses.
     pub fn iter(&self) -> impl Iterator<Item = u8> + '_ {
-        self.0.iter().filter_map(|x| *x)
+        EMC230X_ADDRESSES
+            .iter()
+            .zip(self.0.iter())
+            .filter_map(|(&addr, &found)| found.then_some(addr))
     }
 
     /// Returns `true` if no devices were found.
     pub fn is_empty(&self) -> bool {
-        self.0.iter().all(|x| x.is_none())
+        self.0.iter().all(|&x| !x)
     }
 
     /// Returns the number of devices found.
     pub fn len(&self) -> usize {
-        self.0.iter().filter(|x| x.is_some()).count()
+        self.0.iter().filter(|&&x| x).count()
     }
 }
 
 impl IntoIterator for ProbeResult {
     type Item = u8;
-    type IntoIter = core::iter::Flatten<core::array::IntoIter<Option<u8>, 6>>;
+    type IntoIter = core::iter::FilterMap<
+        core::iter::Zip<core::array::IntoIter<u8, 6>, core::array::IntoIter<bool, 6>>,
+        fn((u8, bool)) -> Option<u8>,
+    >;
 
     fn into_iter(self) -> Self::IntoIter {
-        self.0.into_iter().flatten()
+        EMC230X_ADDRESSES
+            .into_iter()
+            .zip(self.0)
+            .filter_map((|(addr, found)| found.then_some(addr)) as fn((u8, bool)) -> Option<u8>)
     }
 }
 
@@ -218,7 +227,7 @@ impl<I2C: I2c> Emc230x<I2C> {
         let mut result = ProbeResult::default();
         for (slot, &address) in EMC230X_ADDRESSES.iter().enumerate() {
             if Self::is_emc230x(i2c, address).await.is_ok() {
-                result.0[slot] = Some(address);
+                result.0[slot] = true;
             }
         }
         result
