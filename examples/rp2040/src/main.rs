@@ -156,8 +156,9 @@ async fn main(spawner: Spawner) {
     let mut devices: [Option<SharedDevice>; 6] = [None, None, None, None, None, None];
     for (slot, addr) in found.iter().enumerate() {
         match Emc230x::new(I2cDevice::new(&i2c_bus), addr).await {
-            Ok(dev) => {
+            Ok(mut dev) => {
                 info!("Initialized EMC230x at address 0x{:02x}", addr);
+                dev.set_reverse_fan_index(false);
                 devices[slot] = Some(dev);
             }
             Err(_) => error!("Failed to initialize EMC230x at address {}", addr),
