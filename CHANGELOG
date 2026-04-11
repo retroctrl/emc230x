@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Move hacky round to a macro
 - Add reverse fan index to modify user to hardware fan selection
 - Store `ProbeResult` data as a bool instead of an Option
+- Add `contains` to `ProbeResult`
 
 ## [v0.7.0] - 2026-04-09
 
