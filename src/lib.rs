@@ -21,22 +21,21 @@ use embedded_hal_async as hal;
 pub use fans::{FanControl, FanDutyCycle, FanRpm, FanSelect};
 use hal::i2c::I2c;
 
+use constants::EMC230X_ADDRESSES;
+pub use constants::{
+    EMC2301_I2C_ADDR, EMC230X_I2C_ADDR_0, EMC230X_I2C_ADDR_1, EMC230X_I2C_ADDR_2,
+    EMC230X_I2C_ADDR_3, EMC230X_I2C_ADDR_4, EMC230X_I2C_ADDR_5,
+};
 pub use error::Error;
+pub use probe_result::ProbeResult;
 use registers::*;
+pub(crate) use util::round_to;
 
 mod constants;
 mod error;
 mod probe_result;
 mod registers;
 mod util;
-
-use constants::EMC230X_ADDRESSES;
-pub use constants::{
-    EMC2301_I2C_ADDR, EMC230X_I2C_ADDR_0, EMC230X_I2C_ADDR_1, EMC230X_I2C_ADDR_2,
-    EMC230X_I2C_ADDR_3, EMC230X_I2C_ADDR_4, EMC230X_I2C_ADDR_5,
-};
-pub use probe_result::ProbeResult;
-pub(crate) use util::round_to;
 
 /// Fetch a read-only register from the device
 macro_rules! register_ro {
