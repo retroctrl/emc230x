@@ -30,7 +30,7 @@ mod registers;
 /// Default I2C address for the EMC2301 device
 pub const EMC2301_I2C_ADDR: u8 = 0b0010_1111;
 
-/// I2C addresses for the EMC230x family, selected by the ADDR resistor configuration.
+// I2C addresses for the EMC230x family, selected by the ADDR resistor configuration.
 pub const EMC230X_I2C_ADDR_0: u8 = 0x2C;
 pub const EMC230X_I2C_ADDR_1: u8 = 0x2D;
 pub const EMC230X_I2C_ADDR_2: u8 = 0x2E;
