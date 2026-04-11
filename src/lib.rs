@@ -24,38 +24,19 @@ use hal::i2c::I2c;
 pub use error::Error;
 use registers::*;
 
+mod constants;
 mod error;
 mod probe_result;
 mod registers;
 mod util;
 
+use constants::EMC230X_ADDRESSES;
+pub use constants::{
+    EMC2301_I2C_ADDR, EMC230X_I2C_ADDR_0, EMC230X_I2C_ADDR_1, EMC230X_I2C_ADDR_2,
+    EMC230X_I2C_ADDR_3, EMC230X_I2C_ADDR_4, EMC230X_I2C_ADDR_5,
+};
 pub use probe_result::ProbeResult;
 pub(crate) use util::round_to;
-
-/// Default I2C address for the EMC2301 device
-pub const EMC2301_I2C_ADDR: u8 = 0b0010_1111;
-
-// I2C addresses for the EMC230x family, selected by the ADDR resistor configuration.
-pub const EMC230X_I2C_ADDR_0: u8 = 0x2C;
-pub const EMC230X_I2C_ADDR_1: u8 = 0x2D;
-pub const EMC230X_I2C_ADDR_2: u8 = 0x2E;
-pub const EMC230X_I2C_ADDR_3: u8 = 0x2F;
-pub const EMC230X_I2C_ADDR_4: u8 = 0x4C;
-pub const EMC230X_I2C_ADDR_5: u8 = 0x4D;
-
-const EMC230X_ADDRESSES: [u8; 6] = [
-    EMC230X_I2C_ADDR_0,
-    EMC230X_I2C_ADDR_1,
-    EMC230X_I2C_ADDR_2,
-    EMC230X_I2C_ADDR_3,
-    EMC230X_I2C_ADDR_4,
-    EMC230X_I2C_ADDR_5,
-];
-
-/// Simplified RPM factor for calculating RPM from raw values
-///
-/// See Equation 4-3, page 17 of the datasheet. ((SIMPLIFIED_RPM_FACTOR * m) / COUNT)
-const _SIMPLIFIED_RPM_FACTOR: f64 = 3_932_160.0;
 
 /// Fetch a read-only register from the device
 macro_rules! register_ro {
@@ -565,6 +546,7 @@ mod tests {
     use embedded_hal_mock::eh1::i2c::{Mock as I2cMock, Transaction as I2cTransaction};
     use std::{vec, vec::Vec};
 
+    use crate::constants::_SIMPLIFIED_RPM_FACTOR;
     use crate::registers::tach_reading::TachReading;
 
     /// Transaction expectation builder for a [`Emc230x`] device.

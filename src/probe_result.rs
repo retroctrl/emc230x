@@ -5,8 +5,8 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
+use crate::constants::EMC230X_ADDRESSES;
 use crate::error::Error;
-use crate::EMC230X_ADDRESSES;
 
 /// The set of I2C addresses at which EMC230x devices were discovered during a bus probe.
 ///
