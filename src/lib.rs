@@ -97,35 +97,21 @@ macro_rules! fan_register {
     };
 }
 
-/// Manually hack rounding the value because [`core`] doesn't have `round`
+/// Round an `f64` to the nearest integer of type `$ty`.
 ///
-/// This is a terrible practice. Is there a better way to do this?
-pub(crate) fn hacky_round(value: f64) -> u8 {
-    // Interpret the value as a u8 first to get an integer value
-    let raw = value as u8;
-
-    // Reinterpret the integer value as a f64 and compare it to the original value
-    if value - raw as f64 >= 0.5 {
-        raw + 1
-    } else {
-        raw
-    }
+/// Workaround for `core` not providing `round()` in `no_std`.
+macro_rules! round_to {
+    ($value:expr, $ty:ty) => {{
+        let v: f64 = $value;
+        let raw = v as $ty;
+        if v - raw as f64 >= 0.5 {
+            raw + 1
+        } else {
+            raw
+        }
+    }};
 }
-
-/// Manually hack rounding the value because [`core`] doesn't have `round`
-///
-/// This is a terrible practice. Is there a better way to do this?
-pub(crate) fn hacky_round_u16(value: f64) -> u16 {
-    // Interpret the value as a u8 first to get an integer value
-    let raw = value as u16;
-
-    // Reinterpret the integer value as a f64 and compare it to the original value
-    if value - raw as f64 >= 0.5 {
-        raw + 1
-    } else {
-        raw
-    }
-}
+pub(crate) use round_to;
 
 /// The set of I2C addresses at which EMC230x devices were discovered during a bus probe.
 ///
@@ -438,7 +424,7 @@ impl<I2C: I2c> Emc230x<I2C> {
         let f_tach = self.tach_freq();
 
         let value = ((1.0 / poles) * (n - 1.0)) / (value as f64 * (1.0 / m)) * f_tach * 60.0;
-        Ok(hacky_round_u16(value))
+        Ok(round_to!(value, u16))
     }
 
     /// Write a value to a register on the device

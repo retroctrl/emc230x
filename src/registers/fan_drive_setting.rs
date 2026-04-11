@@ -6,7 +6,7 @@
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
 use super::RegisterOffset;
-use crate::hacky_round;
+use crate::round_to;
 use emc230x_macros::RegisterOffset;
 
 #[derive(Copy, Clone, Debug, RegisterOffset)]
@@ -16,12 +16,12 @@ pub struct FanDriveSetting(u8);
 impl FanDriveSetting {
     pub fn duty_cycle(&self) -> u8 {
         let duty = (self.0 as f64 / 255.0) * 100.0;
-        hacky_round(duty)
+        round_to!(duty, u8)
     }
 
     pub fn from_duty_cycle(duty: u8) -> Self {
         let raw = (duty as f64 / 100.0) * 255.0;
-        let raw = hacky_round(raw);
+        let raw = round_to!(raw, u8);
         FanDriveSetting(raw)
     }
 }
