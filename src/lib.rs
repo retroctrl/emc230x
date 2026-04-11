@@ -137,6 +137,17 @@ impl ProbeResult {
     pub fn len(&self) -> usize {
         self.0.iter().filter(|&&x| x).count()
     }
+
+    /// Returns whether a device was found at the given address.
+    ///
+    /// Returns an error if the address is not a valid EMC230x I2C address.
+    pub fn contains(&self, address: u8) -> Result<bool, Error> {
+        let index = EMC230X_ADDRESSES
+            .iter()
+            .position(|&a| a == address)
+            .ok_or(Error::InvalidI2cAddress)?;
+        Ok(self.0[index])
+    }
 }
 
 impl IntoIterator for ProbeResult {
@@ -1325,5 +1336,23 @@ mod tests {
 
         let mut i2c = dev.release();
         i2c.done();
+    }
+
+    #[test]
+    fn contains_found_address() {
+        let result = ProbeResult([false, false, false, true, false, false]);
+        assert_eq!(result.contains(EMC230X_I2C_ADDR_3).unwrap(), true);
+    }
+
+    #[test]
+    fn contains_not_found_address() {
+        let result = ProbeResult([false, false, false, true, false, false]);
+        assert!(!result.contains(EMC230X_I2C_ADDR_0).unwrap());
+    }
+
+    #[test]
+    fn contains_invalid_address() {
+        let result = ProbeResult::default();
+        assert!(result.contains(0xFF).is_err());
     }
 }
