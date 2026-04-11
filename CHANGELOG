@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add reverse fan index to modify user to hardware fan selection
 - Move round helper into `util` module
 - Move constants into dedicated module
+- Reorder namespace declarations above module declarations
 - Store `ProbeResult` data as a bool instead of an Option
 - Add `contains` to `ProbeResult`
 - Move `ProbeResult` to its own module
