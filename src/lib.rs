@@ -27,8 +27,10 @@ use registers::*;
 mod error;
 mod probe_result;
 mod registers;
+mod util;
 
 pub use probe_result::ProbeResult;
+pub(crate) use util::round_to;
 
 /// Default I2C address for the EMC2301 device
 pub const EMC2301_I2C_ADDR: u8 = 0b0010_1111;
@@ -99,22 +101,6 @@ macro_rules! fan_register {
         }
     };
 }
-
-/// Round an `f64` to the nearest integer of type `$ty`.
-///
-/// Workaround for `core` not providing `round()` in `no_std`.
-macro_rules! round_to {
-    ($value:expr, $ty:ty) => {{
-        let v: f64 = $value;
-        let raw = v as $ty;
-        if v - raw as f64 >= 0.5 {
-            raw + 1
-        } else {
-            raw
-        }
-    }};
-}
-pub(crate) use round_to;
 
 pub struct Emc230x<I2C> {
     /// I2C bus
