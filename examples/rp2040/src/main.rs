@@ -151,6 +151,7 @@ async fn main(spawner: Spawner) {
     }
 
     info!("Found {} EMC230x device(s)", found.len());
+    info!("Devices: {}", found);
 
     // Initialize all discovered devices
     let mut devices: [Option<SharedDevice>; 6] = [None, None, None, None, None, None];

@@ -5,6 +5,8 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
+use core::fmt;
+
 use crate::constants::EMC230X_ADDRESSES;
 use crate::error::Error;
 
@@ -12,7 +14,7 @@ use crate::error::Error;
 ///
 /// Returned by [`crate::Emc230x::probe`]. Iterating yields only addresses where a device was found.
 #[derive(Copy, Clone, Debug, Default)]
-pub struct ProbeResult(pub(crate) [bool; 6]);
+pub struct ProbeResult(pub [bool; 6]);
 
 impl ProbeResult {
     /// Returns an iterator over found device addresses.
@@ -42,6 +44,31 @@ impl ProbeResult {
             .position(|&a| a == address)
             .ok_or(Error::InvalidI2cAddress)?;
         Ok(self.0[index])
+    }
+}
+
+impl fmt::Display for ProbeResult {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "0x2C: {}; 0x2D: {}; 0x2E: {}; 0x2F: {}; 0x4C: {}; 0x4D: {}",
+            self.0[0], self.0[1], self.0[2], self.0[3], self.0[4], self.0[5]
+        )
+    }
+}
+
+impl defmt::Format for ProbeResult {
+    fn format(&self, f: defmt::Formatter) {
+        defmt::write!(
+            f,
+            "0x2C: {}; 0x2D: {}; 0x2E: {}; 0x2F: {}; 0x4C: {}; 0x4D: {}",
+            self.0[0],
+            self.0[1],
+            self.0[2],
+            self.0[3],
+            self.0[4],
+            self.0[5]
+        )
     }
 }
 
