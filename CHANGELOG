@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add `InvalidI2cAddress` error type
 - Add `set_mode_all` helper for applying mode to all fans
 - Implement `fmt::Display` for `ProbeResult`
+- Implement `fmt::Display` for `ProductId`
 
 ## Changed
 
