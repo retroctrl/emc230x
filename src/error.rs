@@ -24,6 +24,9 @@ pub enum Error {
     #[error("Invalid I2C address")]
     InvalidI2cAddress,
 
+    #[error("Invalid RPM calculation")]
+    InvalidRpmCalculation,
+
     #[error("Failed to convert register value to specific type")]
     RegisterTypeConversion,
 }
@@ -36,6 +39,7 @@ impl defmt::Format for Error {
             Error::InvalidManufacturerId => defmt::write!(f, "InvalidManufacturerId"),
             Error::InvalidFan => defmt::write!(f, "InvalidFan"),
             Error::InvalidI2cAddress => defmt::write!(f, "InvalidI2cAddress"),
+            Error::InvalidRpmCalculation => defmt::write!(f, "InvalidRpmCalculation"),
             Error::RegisterTypeConversion => defmt::write!(f, "RegisterTypeConversion"),
         }
     }

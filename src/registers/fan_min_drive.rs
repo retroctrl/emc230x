@@ -8,7 +8,7 @@
 use bitfield::bitfield;
 
 use super::RegisterOffset;
-use crate::round_to;
+use crate::util::round_to_u8;
 use emc230x_macros::RegisterOffset;
 
 bitfield! {
@@ -26,12 +26,12 @@ bitfield! {
 impl FanMinimumDrive {
     pub fn duty_cycle(&self) -> u8 {
         let duty = (self.0 as f64 / 255.0) * 100.0;
-        round_to!(duty, u8)
+        round_to_u8(duty)
     }
 
     pub fn from_duty_cycle(duty: u8) -> Self {
         let raw = (duty as f64 / 100.0) * 255.0;
-        let raw = round_to!(raw, u8);
+        let raw = round_to_u8(raw);
         FanMinimumDrive(raw)
     }
 }
