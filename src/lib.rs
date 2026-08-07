@@ -295,6 +295,17 @@ impl<I2C: I2c> Emc230x<I2C> {
         Ok(())
     }
 
+    /// Set the mode of all fans
+    ///
+    /// This is a convenience method that sets the mode of all fans on the device
+    /// to the same setting. It is equivalent to calling [`set_mode`](Self::set_mode) for each fan.
+    pub async fn set_mode_all(&mut self, mode: FanControl) -> Result<(), Error> {
+        for fan in 1..=self.count() {
+            self.set_mode(FanSelect(fan), mode).await?;
+        }
+        Ok(())
+    }
+
     /// Fetch the current duty cycle of the fan
     pub async fn duty_cycle(&mut self, sel: FanSelect) -> Result<FanDutyCycle, Error> {
         self.valid_fan(sel)?;
@@ -1251,6 +1262,85 @@ mod tests {
         assert_eq!(dev.fan_poles(FanSelect(5)).unwrap(), 4);
         // Hardware fan 1 should have the default poles=2
         assert_eq!(dev.fan_poles(FanSelect(1)).unwrap(), 2);
+
+        let mut i2c = dev.release();
+        i2c.done();
+    }
+
+    #[tokio::test]
+    async fn set_mode_all_duty_cycle() {
+        let duty = 50_u8;
+        let mut expectations =
+            Emc230xExpectationBuilder::new(EMC230X_I2C_ADDR_4, ProductId::Emc2305);
+
+        // After init, each fan has FanConfiguration1 = 0x0B (default 0x2B with rngx set to Rpm500).
+        // For each fan, set_mode(DutyCycle) performs:
+        //   1. Read FanConfiguration1 (returns 0x0B)
+        //   2. Write FanConfiguration1 with enagx cleared (still 0x0B since bit 7 is already 0)
+        //   3. Write FanDriveSetting with the duty cycle value
+        let mut cfg = FanConfiguration1::default();
+        cfg.set_rngx(fan_configuration1::Range::Rpm500);
+        let raw_duty: u8 = FanDriveSetting::from_duty_cycle(duty).into();
+
+        for fan in 1..=5_u16 {
+            // Read FanConfiguration1
+            expectations.transactions.push(I2cTransaction::write_read(
+                EMC230X_I2C_ADDR_4,
+                vec![FanConfiguration1::fan_address(FanSelect(fan)).expect("fan address")],
+                vec![cfg.into()],
+            ));
+
+            // Write FanConfiguration1 (enagx cleared)
+            expectations.transactions.push(I2cTransaction::write(
+                EMC230X_I2C_ADDR_4,
+                vec![
+                    FanConfiguration1::fan_address(FanSelect(fan)).expect("fan address"),
+                    cfg.into(),
+                ],
+            ));
+
+            // Write FanDriveSetting
+            expectations.transactions.push(I2cTransaction::write(
+                EMC230X_I2C_ADDR_4,
+                vec![
+                    FanDriveSetting::fan_address(FanSelect(fan)).expect("fan address"),
+                    raw_duty,
+                ],
+            ));
+        }
+
+        // Read back mode for each fan to verify
+        for fan in 1..=5_u16 {
+            // mode() reads FanConfiguration1 (enagx is false -> duty cycle mode)
+            expectations.transactions.push(I2cTransaction::write_read(
+                EMC230X_I2C_ADDR_4,
+                vec![FanConfiguration1::fan_address(FanSelect(fan)).expect("fan address")],
+                vec![cfg.into()],
+            ));
+
+            // mode() reads FanDriveSetting
+            expectations.transactions.push(I2cTransaction::write_read(
+                EMC230X_I2C_ADDR_4,
+                vec![FanDriveSetting::fan_address(FanSelect(fan)).expect("fan address")],
+                vec![raw_duty],
+            ));
+        }
+
+        let expectations = expectations.build();
+        let i2c = I2cMock::new(&expectations);
+        let mut dev = Emc230x::new(i2c, EMC230X_I2C_ADDR_4)
+            .await
+            .expect("Could not create device");
+
+        dev.set_mode_all(FanControl::DutyCycle(duty))
+            .await
+            .expect("set_mode_all failed");
+
+        // Verify all fans are in the expected mode
+        for fan in 1..=5_u16 {
+            let result = dev.mode(FanSelect(fan)).await.expect("Could not get mode");
+            assert_eq!(result, FanControl::DutyCycle(duty));
+        }
 
         let mut i2c = dev.release();
         i2c.done();

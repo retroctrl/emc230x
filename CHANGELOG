@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Add ability to read fan mode into a `FanControl` structure
 - Add `InvalidI2cAddress` error type
+- Add `set_mode_all` helper for applying mode to all fans
 
 ## Changed
 
