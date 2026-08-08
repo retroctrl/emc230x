@@ -8,12 +8,22 @@
 /// Default I2C address for the EMC2301 device
 pub const EMC2301_I2C_ADDR: u8 = 0b0010_1111;
 
-// I2C addresses for the EMC230x family, selected by the ADDR resistor configuration.
+/// I2C address for EMC230x: 0x2C
 pub const EMC230X_I2C_ADDR_0: u8 = 0x2C;
+
+/// I2C address for EMC230x: 0x2D
 pub const EMC230X_I2C_ADDR_1: u8 = 0x2D;
+
+/// I2C address for EMC230x: 0x2E
 pub const EMC230X_I2C_ADDR_2: u8 = 0x2E;
+
+/// I2C address for EMC230x: 0x2F
 pub const EMC230X_I2C_ADDR_3: u8 = 0x2F;
+
+/// I2C address for EMC230x: 0x4C
 pub const EMC230X_I2C_ADDR_4: u8 = 0x4C;
+
+/// I2C address for EMC230x: 0x4D
 pub const EMC230X_I2C_ADDR_5: u8 = 0x4D;
 
 pub(crate) const EMC230X_ADDRESSES: [u8; 6] = [
