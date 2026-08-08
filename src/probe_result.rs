@@ -14,7 +14,7 @@ use crate::error::Error;
 ///
 /// Returned by [`crate::Emc230x::probe`]. Iterating yields only addresses where a device was found.
 #[derive(Copy, Clone, Debug, Default)]
-pub struct ProbeResult(pub [bool; 6]);
+pub struct ProbeResult(pub(crate) [bool; 6]);
 
 impl ProbeResult {
     /// Returns an iterator over found device addresses.
