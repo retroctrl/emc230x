@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
-## Added
+### Added
 
 - Add ability to read fan mode into a `FanControl` structure
 - Add `InvalidI2cAddress` error type
@@ -15,7 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Implement `fmt::Display` for `ProbeResult`
 - Implement `fmt::Display` for `ProductId`
 
-## Changed
+### Changed
 
 - Example: Print address in hex
 - Move hacky round to a macro
@@ -27,25 +27,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add `contains` to `ProbeResult`
 - Move `ProbeResult` to its own module
 
-## Fixed
+### Fixed
 
 - Fix Rust doc comments
 
 ## [v0.7.0] - 2026-04-09
 
-## Added
+### Added
 
 - Add `probe` function to scan all available I2C addresses
 - Example: scan all device addresses
 - Add fan stall detection
 
-## Fixed
+### Fixed
 
 - Fix off by one errors when checking poles
 
 ## [v0.6.0] - 2026-01-01
 
-## Fixed
+### Fixed
 
 - Fix RP2040 Embassy example build issues
 - Clippy fixes
@@ -93,6 +93,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Initial proof of concept and crates.io reservation
 
+[v0.7.0]: https://github.com/retroctrl/emc230x/compare/v0.6.0...v0.7.0
+[v0.6.0]: https://github.com/retroctrl/emc230x/compare/v0.5.0...v0.6.0
+[v0.5.0]: https://github.com/retroctrl/emc230x/compare/v0.4.0...v0.5.0
+[v0.4.0]: https://github.com/retroctrl/emc230x/compare/v0.3.0...v0.4.0
 [v0.3.0]: https://github.com/retroctrl/emc230x/compare/v0.2.0...v0.3.0
 [v0.2.0]: https://github.com/retroctrl/emc230x/compare/v0.1.0...v0.2.0
 [v0.1.0]: https://github.com/retroctrl/emc230x/releases/tag/v0.1.0
