@@ -32,6 +32,7 @@ impl ProductId {
     }
 }
 
+#[cfg(feature = "defmt")]
 impl defmt::Format for ProductId {
     fn format(&self, f: defmt::Formatter) {
         match self {

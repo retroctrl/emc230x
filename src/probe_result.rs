@@ -57,6 +57,7 @@ impl fmt::Display for ProbeResult {
     }
 }
 
+#[cfg(feature = "defmt")]
 impl defmt::Format for ProbeResult {
     fn format(&self, f: defmt::Formatter) {
         defmt::write!(

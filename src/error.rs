@@ -31,6 +31,7 @@ pub enum Error {
     RegisterTypeConversion,
 }
 
+#[cfg(feature = "defmt")]
 impl defmt::Format for Error {
     fn format(&self, f: defmt::Formatter) {
         match self {

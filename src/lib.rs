@@ -492,6 +492,7 @@ impl<I2C: I2c> Emc230x<I2C> {
     register_ro!(product_id, ProductId);
 
     /// Dump all the info and registers from the EMC230x Device
+    #[cfg(feature = "defmt")]
     pub async fn dump_info(&mut self) -> Result<(), Error> {
         macro_rules! defmt_info_register {
             ($dev:expr, $reg:tt) => {
