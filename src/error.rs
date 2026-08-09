@@ -21,10 +21,17 @@ pub enum Error {
     #[error("Invalid fan number")]
     InvalidFan,
 
+    #[error("Invalid I2C address")]
+    InvalidI2cAddress,
+
+    #[error("Invalid RPM calculation")]
+    InvalidRpmCalculation,
+
     #[error("Failed to convert register value to specific type")]
     RegisterTypeConversion,
 }
 
+#[cfg(feature = "defmt")]
 impl defmt::Format for Error {
     fn format(&self, f: defmt::Formatter) {
         match self {
@@ -32,6 +39,8 @@ impl defmt::Format for Error {
             Error::InvalidDeviceId => defmt::write!(f, "InvalidDeviceId"),
             Error::InvalidManufacturerId => defmt::write!(f, "InvalidManufacturerId"),
             Error::InvalidFan => defmt::write!(f, "InvalidFan"),
+            Error::InvalidI2cAddress => defmt::write!(f, "InvalidI2cAddress"),
+            Error::InvalidRpmCalculation => defmt::write!(f, "InvalidRpmCalculation"),
             Error::RegisterTypeConversion => defmt::write!(f, "RegisterTypeConversion"),
         }
     }

@@ -21,36 +21,20 @@ use embedded_hal_async as hal;
 pub use fans::{FanControl, FanDutyCycle, FanRpm, FanSelect};
 use hal::i2c::I2c;
 
+use constants::EMC230X_ADDRESSES;
+pub use constants::{
+    EMC2301_I2C_ADDR, EMC230X_I2C_ADDR_0, EMC230X_I2C_ADDR_1, EMC230X_I2C_ADDR_2,
+    EMC230X_I2C_ADDR_3, EMC230X_I2C_ADDR_4, EMC230X_I2C_ADDR_5,
+};
 pub use error::Error;
+pub use probe_result::ProbeResult;
 use registers::*;
 
+mod constants;
 mod error;
+mod probe_result;
 mod registers;
-
-/// Default I2C address for the EMC2301 device
-pub const EMC2301_I2C_ADDR: u8 = 0b0010_1111;
-
-/// I2C addresses for the EMC230x family, selected by the ADDR resistor configuration.
-pub const EMC230X_I2C_ADDR_0: u8 = 0x2C;
-pub const EMC230X_I2C_ADDR_1: u8 = 0x2D;
-pub const EMC230X_I2C_ADDR_2: u8 = 0x2E;
-pub const EMC230X_I2C_ADDR_3: u8 = 0x2F;
-pub const EMC230X_I2C_ADDR_4: u8 = 0x4C;
-pub const EMC230X_I2C_ADDR_5: u8 = 0x4D;
-
-const EMC230X_ADDRESSES: [u8; 6] = [
-    EMC230X_I2C_ADDR_0,
-    EMC230X_I2C_ADDR_1,
-    EMC230X_I2C_ADDR_2,
-    EMC230X_I2C_ADDR_3,
-    EMC230X_I2C_ADDR_4,
-    EMC230X_I2C_ADDR_5,
-];
-
-/// Simplified RPM factor for calculating RPM from raw values
-///
-/// See Equation 4-3, page 17 of the datasheet. ((SIMPLIFIED_RPM_FACTOR * m) / COUNT)
-const _SIMPLIFIED_RPM_FACTOR: f64 = 3_932_160.0;
+mod util;
 
 /// Fetch a read-only register from the device
 macro_rules! register_ro {
@@ -82,67 +66,19 @@ macro_rules! register {
 macro_rules! fan_register {
     ($get:ident, $set:ident, $reg_type:ty) => {
         pub async fn $get(&mut self, sel: FanSelect) -> Result<$reg_type, Error> {
-            self.valid_fan(sel)?;
+            let sel = self.resolve_fan(sel)?;
             let reg = fan_register_address(sel, <$reg_type>::OFFSET)?;
             let value = self.read_register(reg).await?;
             Ok(value)
         }
 
         pub async fn $set(&mut self, sel: FanSelect, value: $reg_type) -> Result<(), Error> {
-            self.valid_fan(sel)?;
+            let sel = self.resolve_fan(sel)?;
             let reg = fan_register_address(sel, <$reg_type>::OFFSET)?;
             self.write_register(reg, value.into()).await?;
             Ok(())
         }
     };
-}
-
-/// Round an `f64` to the nearest integer of type `$ty`.
-///
-/// Workaround for `core` not providing `round()` in `no_std`.
-macro_rules! round_to {
-    ($value:expr, $ty:ty) => {{
-        let v: f64 = $value;
-        let raw = v as $ty;
-        if v - raw as f64 >= 0.5 {
-            raw + 1
-        } else {
-            raw
-        }
-    }};
-}
-pub(crate) use round_to;
-
-/// The set of I2C addresses at which EMC230x devices were discovered during a bus probe.
-///
-/// Returned by [`Emc230x::probe`]. Iterating yields only addresses where a device was found.
-#[derive(Copy, Clone, Debug, Default)]
-pub struct ProbeResult([Option<u8>; 6]);
-
-impl ProbeResult {
-    /// Returns an iterator over found device addresses.
-    pub fn iter(&self) -> impl Iterator<Item = u8> + '_ {
-        self.0.iter().filter_map(|x| *x)
-    }
-
-    /// Returns `true` if no devices were found.
-    pub fn is_empty(&self) -> bool {
-        self.0.iter().all(|x| x.is_none())
-    }
-
-    /// Returns the number of devices found.
-    pub fn len(&self) -> usize {
-        self.0.iter().filter(|x| x.is_some()).count()
-    }
-}
-
-impl IntoIterator for ProbeResult {
-    type Item = u8;
-    type IntoIter = core::iter::Flatten<core::array::IntoIter<Option<u8>, 6>>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.0.into_iter().flatten()
-    }
 }
 
 pub struct Emc230x<I2C> {
@@ -159,6 +95,14 @@ pub struct Emc230x<I2C> {
 
     /// Configurable number of poles in a fan. Typically 2.
     poles: [u8; 5],
+
+    /// Enable or disable reverse fan indexing.
+    ///
+    /// When enabled, logical fan indices are mirrored around the device's fan count. For example,
+    /// on an EMC2305 (5 fans), `FanSelect(1)` will map to hardware fan 5, `FanSelect(2)` to
+    /// hardware fan 4, and so on. This is useful when the physical fan wiring order is the reverse
+    /// of the hardware channel order.
+    reverse_fan_index: bool,
 }
 
 impl<I2C> Debug for Emc230x<I2C> {
@@ -167,6 +111,7 @@ impl<I2C> Debug for Emc230x<I2C> {
             .field("address", &self.address)
             .field("pid", &self.pid)
             .field("poles", &self.poles)
+            .field("reverse_fan_index", &self.reverse_fan_index)
             .finish()
     }
 }
@@ -209,7 +154,7 @@ impl<I2C: I2c> Emc230x<I2C> {
         let mut result = ProbeResult::default();
         for (slot, &address) in EMC230X_ADDRESSES.iter().enumerate() {
             if Self::is_emc230x(i2c, address).await.is_ok() {
-                result.0[slot] = Some(address);
+                result.0[slot] = true;
             }
         }
         result
@@ -223,12 +168,15 @@ impl<I2C: I2c> Emc230x<I2C> {
         // Assume 2 poles for all fans by default. This is common for most fans and is a safe default.
         let poles = [2; 5];
 
+        let reverse_fan_index = false;
+
         // Form the device so that some defaults can be set
         let mut dev = Self {
             i2c,
             address,
             pid,
             poles,
+            reverse_fan_index,
         };
 
         // Set all fan outputs to push-pull to avoid waveform distortion
@@ -260,9 +208,24 @@ impl<I2C: I2c> Emc230x<I2C> {
         self.pid.num_fans()
     }
 
+    /// Returns `true` if reverse fan indexing is enabled.
+    pub fn reverse_fan_index(&self) -> bool {
+        self.reverse_fan_index
+    }
+
+    /// Enable or disable reverse fan indexing.
+    ///
+    /// When enabled, logical fan indices are mirrored around the device's fan count. For example,
+    /// on an EMC2305 (5 fans), `FanSelect(1)` will map to hardware fan 5, `FanSelect(2)` to
+    /// hardware fan 4, and so on. This is useful when the physical fan wiring order is the reverse
+    /// of the hardware channel order.
+    pub fn set_reverse_fan_index(&mut self, enabled: bool) {
+        self.reverse_fan_index = enabled;
+    }
+
     /// Get the number of poles for the selected fan (used in RPM calculations)
     pub fn fan_poles(&self, sel: FanSelect) -> Result<u8, Error> {
-        self.valid_fan(sel)?;
+        let sel = self.resolve_fan(sel)?;
         Ok(self.poles[sel.0 as usize - 1])
     }
 
@@ -272,7 +235,7 @@ impl<I2C: I2c> Emc230x<I2C> {
     /// If it does need to change, there are likely other configuration changes that need to
     /// happen as well.
     pub fn set_fan_poles(&mut self, sel: FanSelect, poles: u8) -> Result<(), Error> {
-        self.valid_fan(sel)?;
+        let sel = self.resolve_fan(sel)?;
         self.poles[sel.0 as usize - 1] = poles;
         Ok(())
     }
@@ -328,6 +291,17 @@ impl<I2C: I2c> Emc230x<I2C> {
             }
         }
 
+        Ok(())
+    }
+
+    /// Set the mode of all fans
+    ///
+    /// This is a convenience method that sets the mode of all fans on the device
+    /// to the same setting. It is equivalent to calling [`set_mode`](Self::set_mode) for each fan.
+    pub async fn set_mode_all(&mut self, mode: FanControl) -> Result<(), Error> {
+        for fan in 1..=self.count() {
+            self.set_mode(FanSelect(fan), mode).await?;
+        }
         Ok(())
     }
 
@@ -408,7 +382,7 @@ impl<I2C: I2c> Emc230x<I2C> {
     /// This is the closest the hardware can indicate fan presence; it cannot distinguish
     /// between an absent fan and a stalled one.
     pub async fn fan_detected(&mut self, sel: FanSelect) -> Result<bool, Error> {
-        self.valid_fan(sel)?;
+        let sel = self.resolve_fan(sel)?;
         let status = self.stall_status().await?;
         let stalled = (u8::from(status) >> (sel.0 as u8 - 1)) & 1 != 0;
         Ok(!stalled)
@@ -424,7 +398,8 @@ impl<I2C: I2c> Emc230x<I2C> {
         let f_tach = self.tach_freq();
 
         let value = ((1.0 / poles) * (n - 1.0)) / (value as f64 * (1.0 / m)) * f_tach * 60.0;
-        Ok(round_to!(value, u16))
+
+        Ok(util::round_to_u16(value))
     }
 
     /// Write a value to a register on the device
@@ -461,6 +436,19 @@ impl<I2C: I2c> Emc230x<I2C> {
             Ok(())
         } else {
             Err(Error::InvalidFan)
+        }
+    }
+
+    /// Resolve and validate a user-facing [`FanSelect`] to a hardware fan index.
+    ///
+    /// When [`reverse_fan_index`](Self::reverse_fan_index) is enabled, mirror the fan selection.
+    /// When reverse indexing is disabled, the fan select is returned unchanged.
+    fn resolve_fan(&self, sel: FanSelect) -> Result<FanSelect, Error> {
+        self.valid_fan(sel)?;
+        if self.reverse_fan_index {
+            Ok(FanSelect(self.count() - sel.0 + 1))
+        } else {
+            Ok(sel)
         }
     }
 
@@ -504,6 +492,7 @@ impl<I2C: I2c> Emc230x<I2C> {
     register_ro!(product_id, ProductId);
 
     /// Dump all the info and registers from the EMC230x Device
+    #[cfg(feature = "defmt")]
     pub async fn dump_info(&mut self) -> Result<(), Error> {
         macro_rules! defmt_info_register {
             ($dev:expr, $reg:tt) => {
@@ -568,6 +557,7 @@ mod tests {
     use embedded_hal_mock::eh1::i2c::{Mock as I2cMock, Transaction as I2cTransaction};
     use std::{vec, vec::Vec};
 
+    use crate::constants::_SIMPLIFIED_RPM_FACTOR;
     use crate::registers::tach_reading::TachReading;
 
     /// Transaction expectation builder for a [`Emc230x`] device.
@@ -1023,6 +1013,84 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn get_rpm_zero_tach_saturates_to_u16_max() {
+        let mut expectations = Emc230xExpectationBuilder::new(EMC2301_I2C_ADDR, ProductId::Emc2301);
+
+        expectations.transactions.push(I2cTransaction::write_read(
+            EMC2301_I2C_ADDR,
+            vec![TachReadingLow::fan_address(FanSelect(1)).expect("fan address")],
+            vec![0x00],
+        ));
+        expectations.transactions.push(I2cTransaction::write_read(
+            EMC2301_I2C_ADDR,
+            vec![TachReadingHigh::fan_address(FanSelect(1)).expect("fan address")],
+            vec![0x00],
+        ));
+
+        let mut cfg = FanConfiguration1::default();
+        cfg.set_rngx(fan_configuration1::Range::Rpm500);
+        expectations.transactions.push(I2cTransaction::write_read(
+            EMC2301_I2C_ADDR,
+            vec![FanConfiguration1::fan_address(FanSelect(1)).expect("fan address")],
+            vec![cfg.into()],
+        ));
+
+        let expectations = expectations.build();
+        let i2c = I2cMock::new(&expectations);
+        let mut dev = Emc230x::new(i2c, EMC2301_I2C_ADDR)
+            .await
+            .expect("Could not create device");
+
+        let result = dev.rpm(FanSelect(1)).await.expect("Could not get RPM");
+        assert_eq!(result, u16::MAX);
+
+        let mut i2c = dev.release();
+        i2c.done();
+    }
+
+    #[tokio::test]
+    async fn set_rpm_zero_saturates_to_u16_max() {
+        let mut expectations = Emc230xExpectationBuilder::new(EMC2301_I2C_ADDR, ProductId::Emc2301);
+
+        let mut cfg = FanConfiguration1::default();
+        cfg.set_rngx(fan_configuration1::Range::Rpm500);
+        expectations.transactions.push(I2cTransaction::write_read(
+            EMC2301_I2C_ADDR,
+            vec![FanConfiguration1::fan_address(FanSelect(1)).expect("fan address")],
+            vec![cfg.into()],
+        ));
+
+        let count = TachReading::from(u16::MAX);
+        expectations.transactions.push(I2cTransaction::write(
+            EMC2301_I2C_ADDR,
+            vec![
+                TachTargetLow::fan_address(FanSelect(1)).expect("fan address"),
+                count.raw_low(),
+            ],
+        ));
+        expectations.transactions.push(I2cTransaction::write(
+            EMC2301_I2C_ADDR,
+            vec![
+                TachTargetHigh::fan_address(FanSelect(1)).expect("fan address"),
+                count.raw_high(),
+            ],
+        ));
+
+        let expectations = expectations.build();
+        let i2c = I2cMock::new(&expectations);
+        let mut dev = Emc230x::new(i2c, EMC2301_I2C_ADDR)
+            .await
+            .expect("Could not create device");
+
+        dev.set_rpm(FanSelect(1), 0)
+            .await
+            .expect("Could not set RPM");
+
+        let mut i2c = dev.release();
+        i2c.done();
+    }
+
+    #[tokio::test]
     async fn mode_duty_cycle() {
         let duty = 75_u8;
         let mut expectations = Emc230xExpectationBuilder::new(EMC2301_I2C_ADDR, ProductId::Emc2301);
@@ -1113,6 +1181,244 @@ mod tests {
                 );
             }
             other => panic!("Expected FanControl::Rpm, got {:?}", other),
+        }
+
+        let mut i2c = dev.release();
+        i2c.done();
+    }
+
+    #[tokio::test]
+    async fn resolve_fan_no_reverse() {
+        let expectations =
+            Emc230xExpectationBuilder::new(EMC230X_I2C_ADDR_5, ProductId::Emc2305).build();
+        let i2c = I2cMock::new(&expectations);
+        let dev = Emc230x::new(i2c, EMC230X_I2C_ADDR_5)
+            .await
+            .expect("Could not create device");
+
+        // Without reverse, fan indices should pass through unchanged
+        for fan in 1..=5_u16 {
+            let resolved = dev.resolve_fan(FanSelect(fan)).expect("resolve_fan failed");
+            assert_eq!(resolved.0, fan);
+        }
+
+        let mut i2c = dev.release();
+        i2c.done();
+    }
+
+    #[tokio::test]
+    async fn resolve_fan_reversed_emc2305() {
+        let expectations =
+            Emc230xExpectationBuilder::new(EMC230X_I2C_ADDR_5, ProductId::Emc2305).build();
+        let i2c = I2cMock::new(&expectations);
+        let mut dev = Emc230x::new(i2c, EMC230X_I2C_ADDR_5)
+            .await
+            .expect("Could not create device");
+
+        dev.set_reverse_fan_index(true);
+        assert!(dev.reverse_fan_index());
+
+        // On EMC2305 (5 fans): 1->5, 2->4, 3->3, 4->2, 5->1
+        assert_eq!(dev.resolve_fan(FanSelect(1)).unwrap().0, 5);
+        assert_eq!(dev.resolve_fan(FanSelect(2)).unwrap().0, 4);
+        assert_eq!(dev.resolve_fan(FanSelect(3)).unwrap().0, 3);
+        assert_eq!(dev.resolve_fan(FanSelect(4)).unwrap().0, 2);
+        assert_eq!(dev.resolve_fan(FanSelect(5)).unwrap().0, 1);
+
+        let mut i2c = dev.release();
+        i2c.done();
+    }
+
+    #[tokio::test]
+    async fn resolve_fan_reversed_emc2302() {
+        let expectations =
+            Emc230xExpectationBuilder::new(EMC230X_I2C_ADDR_1, ProductId::Emc2302).build();
+        let i2c = I2cMock::new(&expectations);
+        let mut dev = Emc230x::new(i2c, EMC230X_I2C_ADDR_1)
+            .await
+            .expect("Could not create device");
+
+        dev.set_reverse_fan_index(true);
+
+        // On EMC2302 (2 fans): 1->2, 2->1
+        assert_eq!(dev.resolve_fan(FanSelect(1)).unwrap().0, 2);
+        assert_eq!(dev.resolve_fan(FanSelect(2)).unwrap().0, 1);
+
+        // Fan 3 should be invalid on a 2-fan device
+        assert!(dev.resolve_fan(FanSelect(3)).is_err());
+
+        let mut i2c = dev.release();
+        i2c.done();
+    }
+
+    #[tokio::test]
+    async fn reversed_duty_cycle_emc2305() {
+        // With reverse enabled, reading duty_cycle(FanSelect(1)) should hit hardware fan 5
+        // (register at FAN5_BASE + offset = 0x70)
+        let mut expectations =
+            Emc230xExpectationBuilder::new(EMC230X_I2C_ADDR_4, ProductId::Emc2305);
+
+        // The mock expects I2C reads at the *hardware* fan 5 address
+        expectations.duty_cycle(FanSelect(5), 80);
+
+        let expectations = expectations.build();
+        let i2c = I2cMock::new(&expectations);
+        let mut dev = Emc230x::new(i2c, EMC230X_I2C_ADDR_4)
+            .await
+            .expect("Could not create device");
+
+        dev.set_reverse_fan_index(true);
+
+        // User asks for fan 1, but it resolves to hardware fan 5
+        let result = dev
+            .duty_cycle(FanSelect(1))
+            .await
+            .expect("Could not get duty cycle");
+        assert_eq!(80, result);
+
+        let mut i2c = dev.release();
+        i2c.done();
+    }
+
+    #[tokio::test]
+    async fn reversed_fan_detected_emc2305() {
+        // With reverse enabled, fan_detected(FanSelect(1)) on EMC2305 should check
+        // hardware fan 5 (bit 4 of stall status register)
+        let mut expectations =
+            Emc230xExpectationBuilder::new(EMC230X_I2C_ADDR_4, ProductId::Emc2305);
+
+        // Stall status = 0x10 -> bit 4 set -> hardware fan 5 stalled
+        expectations.transactions.push(I2cTransaction::write_read(
+            EMC230X_I2C_ADDR_4,
+            vec![FanStallStatus::ADDRESS],
+            vec![0x10],
+        ));
+
+        let expectations = expectations.build();
+        let i2c = I2cMock::new(&expectations);
+        let mut dev = Emc230x::new(i2c, EMC230X_I2C_ADDR_4)
+            .await
+            .expect("Could not create device");
+
+        dev.set_reverse_fan_index(true);
+
+        // User asks about fan 1 -> resolves to hardware fan 5 -> bit 4 is set -> stalled
+        let result = dev
+            .fan_detected(FanSelect(1))
+            .await
+            .expect("fan_detected failed");
+        assert!(!result);
+
+        let mut i2c = dev.release();
+        i2c.done();
+    }
+
+    #[tokio::test]
+    async fn reversed_fan_poles_emc2305() {
+        let expectations =
+            Emc230xExpectationBuilder::new(EMC230X_I2C_ADDR_4, ProductId::Emc2305).build();
+        let i2c = I2cMock::new(&expectations);
+        let mut dev = Emc230x::new(i2c, EMC230X_I2C_ADDR_4)
+            .await
+            .expect("Could not create device");
+
+        dev.set_reverse_fan_index(true);
+
+        // Set poles for logical fan 1 (resolves to hardware fan 5)
+        dev.set_fan_poles(FanSelect(1), 4)
+            .expect("set_fan_poles failed");
+
+        // Reading logical fan 1 should return what we set
+        assert_eq!(dev.fan_poles(FanSelect(1)).unwrap(), 4);
+
+        // Logical fan 5 (resolves to hardware fan 1) should still have the default
+        assert_eq!(dev.fan_poles(FanSelect(5)).unwrap(), 2);
+
+        // Disable reverse and verify the value is at the correct hardware position
+        dev.set_reverse_fan_index(false);
+
+        // Hardware fan 5 should have poles=4 (what we set via logical fan 1)
+        assert_eq!(dev.fan_poles(FanSelect(5)).unwrap(), 4);
+        // Hardware fan 1 should have the default poles=2
+        assert_eq!(dev.fan_poles(FanSelect(1)).unwrap(), 2);
+
+        let mut i2c = dev.release();
+        i2c.done();
+    }
+
+    #[tokio::test]
+    async fn set_mode_all_duty_cycle() {
+        let duty = 50_u8;
+        let mut expectations =
+            Emc230xExpectationBuilder::new(EMC230X_I2C_ADDR_4, ProductId::Emc2305);
+
+        // After init, each fan has FanConfiguration1 = 0x0B (default 0x2B with rngx set to Rpm500).
+        // For each fan, set_mode(DutyCycle) performs:
+        //   1. Read FanConfiguration1 (returns 0x0B)
+        //   2. Write FanConfiguration1 with enagx cleared (still 0x0B since bit 7 is already 0)
+        //   3. Write FanDriveSetting with the duty cycle value
+        let mut cfg = FanConfiguration1::default();
+        cfg.set_rngx(fan_configuration1::Range::Rpm500);
+        let raw_duty: u8 = FanDriveSetting::from_duty_cycle(duty).into();
+
+        for fan in 1..=5_u16 {
+            // Read FanConfiguration1
+            expectations.transactions.push(I2cTransaction::write_read(
+                EMC230X_I2C_ADDR_4,
+                vec![FanConfiguration1::fan_address(FanSelect(fan)).expect("fan address")],
+                vec![cfg.into()],
+            ));
+
+            // Write FanConfiguration1 (enagx cleared)
+            expectations.transactions.push(I2cTransaction::write(
+                EMC230X_I2C_ADDR_4,
+                vec![
+                    FanConfiguration1::fan_address(FanSelect(fan)).expect("fan address"),
+                    cfg.into(),
+                ],
+            ));
+
+            // Write FanDriveSetting
+            expectations.transactions.push(I2cTransaction::write(
+                EMC230X_I2C_ADDR_4,
+                vec![
+                    FanDriveSetting::fan_address(FanSelect(fan)).expect("fan address"),
+                    raw_duty,
+                ],
+            ));
+        }
+
+        // Read back mode for each fan to verify
+        for fan in 1..=5_u16 {
+            // mode() reads FanConfiguration1 (enagx is false -> duty cycle mode)
+            expectations.transactions.push(I2cTransaction::write_read(
+                EMC230X_I2C_ADDR_4,
+                vec![FanConfiguration1::fan_address(FanSelect(fan)).expect("fan address")],
+                vec![cfg.into()],
+            ));
+
+            // mode() reads FanDriveSetting
+            expectations.transactions.push(I2cTransaction::write_read(
+                EMC230X_I2C_ADDR_4,
+                vec![FanDriveSetting::fan_address(FanSelect(fan)).expect("fan address")],
+                vec![raw_duty],
+            ));
+        }
+
+        let expectations = expectations.build();
+        let i2c = I2cMock::new(&expectations);
+        let mut dev = Emc230x::new(i2c, EMC230X_I2C_ADDR_4)
+            .await
+            .expect("Could not create device");
+
+        dev.set_mode_all(FanControl::DutyCycle(duty))
+            .await
+            .expect("set_mode_all failed");
+
+        // Verify all fans are in the expected mode
+        for fan in 1..=5_u16 {
+            let result = dev.mode(FanSelect(fan)).await.expect("Could not get mode");
+            assert_eq!(result, FanControl::DutyCycle(duty));
         }
 
         let mut i2c = dev.release();

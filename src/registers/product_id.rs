@@ -5,6 +5,8 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
+use core::fmt;
+
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 
 #[derive(Copy, Clone, Debug, IntoPrimitive, TryFromPrimitive)]
@@ -30,6 +32,7 @@ impl ProductId {
     }
 }
 
+#[cfg(feature = "defmt")]
 impl defmt::Format for ProductId {
     fn format(&self, f: defmt::Formatter) {
         match self {
@@ -37,6 +40,17 @@ impl defmt::Format for ProductId {
             ProductId::Emc2303 => defmt::write!(f, "EMC2303"),
             ProductId::Emc2302 => defmt::write!(f, "EMC2302"),
             ProductId::Emc2301 => defmt::write!(f, "EMC2301"),
+        }
+    }
+}
+
+impl fmt::Display for ProductId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ProductId::Emc2305 => write!(f, "EMC2305"),
+            ProductId::Emc2303 => write!(f, "EMC2303"),
+            ProductId::Emc2302 => write!(f, "EMC2302"),
+            ProductId::Emc2301 => write!(f, "EMC2301"),
         }
     }
 }

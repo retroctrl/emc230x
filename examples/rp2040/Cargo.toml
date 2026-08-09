@@ -22,5 +22,5 @@ embassy-usb-logger = "0.5"
 fans = { version = "0.4" }
 log = { version = "0.4", default-features = false }
 panic-probe = { version = "0.3", features = ["print-defmt"] }
-emc230x = { path = "../.." }
+emc230x = { path = "../..", features = ["defmt"] }
 embassy-sync = "0.7.2"
